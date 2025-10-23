@@ -1,0 +1,77 @@
+name: Build Venv and Commit to Repo
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      python_version:
+        description: 'Python version'
+        required: false
+        default: '3.10'
+
+permissions:
+  contents: write  # Required to push to repo
+
+jobs:
+  build-and-commit:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ github.event.inputs.python_version || '3.10' }}
+
+      - name: Create virtual environment and install packages
+        run: |
+          echo "Creating virtual environment..."
+          python -m venv venv
+          
+          echo "Installing packages..."
+          source venv/bin/activate
+          pip install --upgrade pip
+          pip install torch torchvision pillow numpy matplotlib timm
+          pip freeze > venv/requirements.txt
+          deactivate
+
+      - name: Create zip file
+        run: |
+          timestamp=$(date +%Y%m%d_%H%M%S)
+          zipfile="torch-venv-${timestamp}.zip"
+          
+          echo "Creating zip: ${zipfile}"
+          zip -r ${zipfile} venv \
+            -x "*__pycache__*" \
+            -x "*.pyc" \
+            -x "*.pyo"
+          
+          # Create a 'latest' symlink/copy
+          cp ${zipfile} torch-venv-latest.zip
+          
+          echo "ZIPFILE=${zipfile}" >> $GITHUB_ENV
+          echo "Zip file created:"
+          ls -lh ${zipfile}
+
+      - name: Commit and push zip file
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          git add ${{ env.ZIPFILE }} torch-venv-latest.zip
+          git commit -m "🤖 Auto-generated torch venv zip - $(date +'%Y-%m-%d %H:%M:%S')" || echo "No changes to commit"
+          git push
+
+      - name: Summary
+        run: |
+          echo "## Build Complete! ✅" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Zip file committed to repository:" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.ZIPFILE }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`torch-venv-latest.zip\` (latest version)" >> $GITHUB_STEP_SUMMARY
