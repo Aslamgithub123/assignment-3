@@ -1,4 +1,4 @@
-name: Create Virtual Environment and Zip
+name: Create Virtual Environment Folder
 
 on:
   push:
@@ -14,9 +14,15 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-      with:
-        lfs: true
       
+    - name: Free up disk space
+      run: |
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /opt/ghc
+        sudo rm -rf /usr/local/share/boost
+        sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+        df -h
+        
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
@@ -27,21 +33,31 @@ jobs:
         python -m venv venv
         source venv/bin/activate
         pip install --upgrade pip
-        pip install -r requirements.txt
+        pip install -r requirements.txt --no-cache-dir
         
-    - name: Create zip of venv
+    - name: Clean up venv
       run: |
-        zip -r venv.zip venv/
+        find venv -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+        find venv -type f -name "*.pyc" -delete
+        find venv -type d -name tests -exec rm -rf {} + 2>/dev/null || true
+        du -sh venv/
         
-    - name: Setup Git LFS
+    - name: Remove large binary files but keep structure
       run: |
-        git lfs install
-        git lfs track "*.zip"
-        git add .gitattributes
+        # Remove .so files (shared libraries) - these are the largest
+        find venv -name "*.so" -type f -size +10M -delete
+        find venv -name "*.so.*" -type f -size +10M -delete
+        # Remove large .bin files
+        find venv -name "*.bin" -type f -size +10M -delete
+        # Remove large .pt/.pth (PyTorch model files)
+        find venv -name "*.pt" -type f -size +10M -delete
+        find venv -name "*.pth" -type f -size +10M -delete
+        # Show what's left
+        du -sh venv/
         
-    - name: Commit and push venv.zip
+    - name: Commit and push venv folder
       run: |
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
-        git add venv.zip
-        git diff --quiet && git diff --staged --quiet || (git commit -m "Update venv.zip [skip ci]" && git push)
+        git add venv/
+        git diff --quiet && git diff --staged --quiet || (git commit -m "Update venv folder [skip ci]" && git push)
